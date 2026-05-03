@@ -7,11 +7,34 @@ var cookieParser = require('cookie-parser');
 var logger = require('morgan');
 var db = require('./db');
 
-// Verify database connection on startup
+// Verify database connection and initialize tables on startup
 db.connect()
-  .then((client) => {
+  .then(async (client) => {
     console.log('Connected to PostgreSQL database:', process.env.DB_NAME);
-    client.release();
+    try {
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS users (
+          id SERIAL PRIMARY KEY,
+          name VARCHAR(100) NOT NULL,
+          surname VARCHAR(100) NOT NULL,
+          email VARCHAR(255) NOT NULL UNIQUE,
+          password_hash VARCHAR(255) NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+      console.log('Users table ready.');
+
+      await client.query(`
+        CREATE TABLE IF NOT EXISTS user_subjects (
+          user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          subject_name VARCHAR(100) NOT NULL,
+          PRIMARY KEY (user_id, subject_name)
+        )
+      `);
+      console.log('User_subjects table ready.');
+    } finally {
+      client.release();
+    }
   })
   .catch((err) => {
     console.error('Failed to connect to PostgreSQL:', err.message);
@@ -21,10 +44,6 @@ var indexRouter = require('./routes/index');
 var usersRouter = require('./routes/users');
 
 var app = express();
-
-// view engine setup
-app.set('views', path.join(__dirname, 'views'));
-app.set('view engine', 'jade');
 
 app.use(logger('dev'));
 app.use(express.json());
@@ -42,13 +61,10 @@ app.use('/users', usersRouter);
 
 // error handler
 app.use(function(err, req, res, next) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get('env') === 'development' ? err : {};
-
-  // render the error page
   res.status(err.status || 500);
-  res.render('error');
+  res.json({
+    error: err.message || 'Internal server error.'
+  });
 });
 
 module.exports = app;
